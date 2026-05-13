@@ -51,12 +51,13 @@ REQUIRED_SNIPPETS = [
 ]
 
 
-def YOUR_CONTEXT_PROVIDER(corpus: List[str]) -> List[str]:
+def YOUR_CONTEXT_PROVIDER(corpus: List[str], question: str) -> List[str]:
     """TODO: Select and return the relevant subset of documents from CORPUS for this task.
 
     For example, return [] to simulate missing context, or [corpus[0]] to include the API docs.
     """
-    return [corpus[0]]
+    if 'fetch_user_name' in question:
+        return [corpus[0]]
 
 
 def make_user_prompt(question: str, context_docs: List[str]) -> str:
@@ -89,9 +90,9 @@ def extract_code_block(text: str) -> str:
     return text.strip()
 
 
-def test_your_prompt(system_prompt: str, context_provider: Callable[[List[str]], List[str]]) -> bool:
+def test_your_prompt(system_prompt: str, context_provider: Callable[[List[str], str], List[str]]) -> bool:
     """Run up to NUM_RUNS_TIMES and return True if any output matches EXPECTED_OUTPUT."""
-    context_docs = context_provider(CORPUS)
+    context_docs = context_provider(CORPUS, QUESTION)
     user_prompt = make_user_prompt(QUESTION, context_docs)
 
     for idx in range(NUM_RUNS_TIMES):
