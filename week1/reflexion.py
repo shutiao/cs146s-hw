@@ -15,7 +15,7 @@ Keep the implementation minimal.
 """
 
 # TODO: Fill this in!
-YOUR_REFLEXION_PROMPT = ""
+YOUR_REFLEXION_PROMPT = "correct the previous code to fix the test failures"
 
 
 # Ground-truth test suite used to evaluate generated code
@@ -96,7 +96,14 @@ def your_build_reflexion_context(prev_code: str, failures: List[str]) -> str:
 
     Return a string that will be sent as the user content alongside the reflexion system prompt.
     """
-    return ""
+    reflection_context = f"""
+    Previous code:
+    {prev_code}
+
+    Test failures:
+    {', '.join(failures)}
+    """
+    return reflection_context
 
 
 def apply_reflexion(
