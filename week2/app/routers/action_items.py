@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 
 from .. import db
-from ..services.extract import extract_action_items
+from ..services.extract import extract_action_items_llm as extract_action_items
 
 
 router = APIRouter(prefix="/action-items", tags=["action-items"])
