@@ -53,6 +53,16 @@ def read_file_tool(filename: str) -> Dict[str, Any]:
     """
     full_path = resolve_abs_path(filename)
     print(full_path)
+    if full_path.is_dir():
+        return {
+            "file_path": str(full_path),
+            "error": "Path is a directory, not a file. Use list_files to see its contents."
+        }
+    if not full_path.exists():
+        return {
+            "file_path": str(full_path),
+            "error": f"File not found: {full_path}"
+        }
     with open(str(full_path), "r") as f:
         content = f.read()
     return {
@@ -189,14 +199,17 @@ def run_coding_agent_loop():
                 tool = TOOL_REGISTRY[name]
                 resp = ""
                 print(name, args)
-                if name == "read_file":
-                    resp = tool(args.get("filename", "."))
-                elif name == "list_files":
-                    resp = tool(args.get("path", "."))
-                elif name == "edit_file":
-                    resp = tool(args.get("path", "."), 
-                                args.get("old_str", ""), 
-                                args.get("new_str", ""))
+                try:
+                    if name == "read_file":
+                        resp = tool(args.get("filename") or args.get("path") or ".")
+                    elif name == "list_files":
+                        resp = tool(args.get("path") or args.get("dirname") or ".")
+                    elif name == "edit_file":
+                        resp = tool(args.get("path") or args.get("filename") or ".",
+                                    args.get("old_str", ""),
+                                    args.get("new_str", ""))
+                except Exception as e:
+                    resp = {"error": str(e)}
                 conversation.append({
                     "role": "user",
                     "content": f"tool_result({json.dumps(resp)})"
