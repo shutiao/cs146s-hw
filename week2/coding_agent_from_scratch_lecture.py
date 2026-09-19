@@ -1,9 +1,11 @@
-import inspect
+import asyncio
 import json
 import os
+import threading
 
 from openai import OpenAI
 from dotenv import load_dotenv
+from fastmcp import Client
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -36,127 +38,73 @@ YOU_COLOR = "\u001b[94m"
 ASSISTANT_COLOR = "\u001b[93m"
 RESET_COLOR = "\u001b[0m"
 
-def resolve_abs_path(path_str: str) -> Path:
-    """
-    file.py -> /Users/home/mihail/modern-software-dev-lectures/file.py
-    """
-    path = Path(path_str).expanduser()
-    if not path.is_absolute():
-        path = (Path.cwd() / path).resolve()
-    return path
+_MCP_SERVER = Path(__file__).parent / "simple_mcp.py"
+_mcp_client = None
+_mcp_loop = None
 
-def read_file_tool(filename: str) -> Dict[str, Any]:
-    """
-    Gets the full content of a file provided by the user.
-    :param filename: The name of the file to read.
-    :return: The full content of the file.
-    """
-    full_path = resolve_abs_path(filename)
-    print(full_path)
-    if full_path.is_dir():
-        return {
-            "file_path": str(full_path),
-            "error": "Path is a directory, not a file. Use list_files to see its contents."
-        }
-    if not full_path.exists():
-        return {
-            "file_path": str(full_path),
-            "error": f"File not found: {full_path}"
-        }
-    with open(str(full_path), "r") as f:
-        content = f.read()
-    return {
-        "file_path": str(full_path),
-        "content": content
-    }
+def _loop():
+    global _mcp_loop
+    if _mcp_loop is None:
+        _mcp_loop = asyncio.new_event_loop()
+        threading.Thread(target=_mcp_loop.run_forever, daemon=True).start()
+    return _mcp_loop
 
-def list_files_tool(path: str) -> Dict[str, Any]:
-    """
-    Lists the files in a directory provided by the user.
-    :param path: The path to a directory to list files from.
-    :return: A list of files in the directory.
-    """
-    full_path = resolve_abs_path(path)
-    all_files = []
-    for item in full_path.iterdir():
-        all_files.append({
-            "filename": item.name,
-            "type": "file" if item.is_file() else "dir"
-        })
-    return {
-        "path": str(full_path),
-        "files": all_files
-    }
+async def _get_client():
+    global _mcp_client
+    if _mcp_client is None:
+        _mcp_client = Client(_MCP_SERVER)
+        await _mcp_client.__aenter__()
+    return _mcp_client
 
-def edit_file_tool(path: str, old_str: str, new_str: str) -> Dict[str, Any]:
-    """
-    Replaces first occurrence of old_str with new_str in file. If old_str is empty,
-    create/overwrite file with new_str.
-    :param path: The path to the file to edit.
-    :param old_str: The string to replace.
-    :param new_str: The string to replace with.
-    :return: A dictionary with the path to the file and the action taken.
-    """
-    full_path = resolve_abs_path(path)
-    if old_str == "":
-        full_path.write_text(new_str, encoding="utf-8")
-        return {
-            "path": str(full_path),
-            "action": "created_file"
-        }
-    original = full_path.read_text(encoding="utf-8")
-    if original.find(old_str) == -1:
-        return {
-            "path": str(full_path),
-            "action": "old_str not found"
-        }
-    edited = original.replace(old_str, new_str, 1)
-    full_path.write_text(edited, encoding="utf-8")
-    return {
-        "path": str(full_path),
-        "action": "edited"
-    }
-    
-
-TOOL_REGISTRY = {
-    "read_file": read_file_tool,
-    "list_files": list_files_tool,
-    "edit_file": edit_file_tool 
-}
-
-def get_tool_str_representation(tool_name: str) -> str:
-    tool = TOOL_REGISTRY[tool_name]
-    return f"""
-    Name: {tool_name}
-    Description: {tool.__doc__}
-    Signature: {inspect.signature(tool)}
-    """
+def _call_async(coro):
+    return asyncio.run_coroutine_threadsafe(coro, _loop()).result()
 
 def get_full_system_prompt():
-    tool_str_repr = ""
-    for tool_name in TOOL_REGISTRY:
-        tool_str_repr += "TOOL\n===" + get_tool_str_representation(tool_name)
-        tool_str_repr += f'\n{"="*15}\n'
-    return SYSTEM_PROMPT.format(tool_list_repr=tool_str_repr, cwd=str(Path.cwd()))
+    async def _build():
+        client = await _get_client()
+        tools = await client.list_tools()
+        tool_str_repr = ""
+        for t in tools:
+            tool_str_repr += (
+                f"TOOL\n===\nName: {t.name}\n"
+                f"Description: {t.description}\n"
+                f"Args: {json.dumps(t.input_schema)}\n"
+            )
+            tool_str_repr += f'\n{"="*15}\n'
+        return SYSTEM_PROMPT.format(tool_list_repr=tool_str_repr, cwd=str(Path.cwd()))
+    return _call_async(_build())
+
+def call_mcp_tool(name: str, args: Dict[str, Any]):
+    async def _do():
+        client = await _get_client()
+        actual = name if name.endswith("_tool") else name + "_tool"
+        return await client.call_tool(actual, args)
+    return _call_async(_do())
 
 def extract_tool_invocations(text: str) -> List[Tuple[str, Dict[str, Any]]]:
-    """
-    Return list of (tool_name, args) requested in 'tool: name({...})' lines.
-    The parser expects single-line, compact JSON in parentheses.
-    """
     invocations = []
+    in_tool_block = False
     for raw_line in text.splitlines():
         line = raw_line.strip()
-        if not line.startswith("tool:"):
+        if line.startswith("```"):
+            line = line[3:].strip()
+            if line == "" or (line.startswith("tool") and "(" not in line):
+                in_tool_block = not in_tool_block
+                continue
+            if line.startswith("tool"):
+                line = line[4:].lstrip(":").strip()
+        elif line.startswith("tool:"):
+            line = line[len("tool:"):].strip()
+        elif not in_tool_block:
             continue
         try:
-            after = line[len("tool:"):].strip()
-            name, rest = after.split("(", 1)
-            name = name.strip()
+            if "(" not in line:
+                continue
+            name, rest = line.split("(", 1)
+            name = name.strip().removesuffix("_tool")
             if not rest.endswith(")"):
                 continue
-            json_str = rest[:-1].strip()
-            args = json.loads(json_str)
+            args = json.loads(rest[:-1].strip())
             invocations.append((name, args))
         except Exception:
             continue
@@ -196,23 +144,15 @@ def run_coding_agent_loop():
                 })
                 break
             for name, args in tool_invocations:
-                tool = TOOL_REGISTRY[name]
-                resp = ""
                 print(name, args)
                 try:
-                    if name == "read_file":
-                        resp = tool(args.get("filename") or args.get("path") or ".")
-                    elif name == "list_files":
-                        resp = tool(args.get("path") or args.get("dirname") or ".")
-                    elif name == "edit_file":
-                        resp = tool(args.get("path") or args.get("filename") or ".",
-                                    args.get("old_str", ""),
-                                    args.get("new_str", ""))
+                    result = call_mcp_tool(name, args)
+                    resp = [c.model_dump() for c in result.content]
                 except Exception as e:
                     resp = {"error": str(e)}
                 conversation.append({
                     "role": "user",
-                    "content": f"tool_result({json.dumps(resp)})"
+                    "content": f"tool_result({json.dumps(resp, default=str)})"
                 })
                 
 
