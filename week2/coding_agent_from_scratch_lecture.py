@@ -164,7 +164,7 @@ def extract_tool_invocations(text: str) -> List[Tuple[str, Dict[str, Any]]]:
 
 def execute_llm_call(conversation: List[Dict[str, str]]):
     response = openai_client.chat.completions.create(
-        model=os.environ.get("MODEL_NAME", "llama3.1:8b"),
+        model=os.environ.get("MODEL_NAME", "mistral-nemo:12b"),
         messages=conversation,
         max_completion_tokens=2000
     )
