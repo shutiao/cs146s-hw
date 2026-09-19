@@ -9,16 +9,25 @@ from typing import Any, Dict, List, Tuple
 
 load_dotenv()
 
-openai_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+# Default to local Ollama if no OPENAI_API_KEY is set
+_api_key = os.environ.get("OPENAI_API_KEY", "ollama")
+_base_url = os.environ.get("OPENAI_BASE_URL", "http://localhost:11434/v1")
+openai_client = OpenAI(api_key=_api_key, base_url=_base_url)
 
 SYSTEM_PROMPT = """
 You are a coding assistant whose goal it is to help us solve coding tasks. 
-You have access to a series of tools you can execute. Hear are the tools you can execute:
+You have access to a series of tools you can execute. Here are the tools you can execute:
 
 {tool_list_repr}
 
-When you want to use a tool, reply with exactly one line in the format: 'tool: TOOL_NAME({{JSON_ARGS}})' and nothing else.
-Use compact single-line JSON with double quotes. After receiving a tool_result(...) message, continue the task.
+Your current working directory is: {cwd}
+Use paths relative to this directory (e.g. "week1" or "week1/rag.py"). Do NOT invent absolute paths like "/home/user/...".
+
+When you want to use a tool, reply with exactly one line in the format: tool: TOOL_NAME({{JSON_ARGS}}) and nothing else.
+Use compact single-line JSON with double quotes, for example:
+  tool: list_files({{"path": "week1"}})
+  tool: read_file({{"filename": "week1/rag.py"}})
+After receiving a tool_result(...) message, continue the task.
 If no tool is needed, respond normally.
 """
 
@@ -118,7 +127,7 @@ def get_full_system_prompt():
     for tool_name in TOOL_REGISTRY:
         tool_str_repr += "TOOL\n===" + get_tool_str_representation(tool_name)
         tool_str_repr += f'\n{"="*15}\n'
-    return SYSTEM_PROMPT.format(tool_list_repr=tool_str_repr)
+    return SYSTEM_PROMPT.format(tool_list_repr=tool_str_repr, cwd=str(Path.cwd()))
 
 def extract_tool_invocations(text: str) -> List[Tuple[str, Dict[str, Any]]]:
     """
