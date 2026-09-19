@@ -77,8 +77,7 @@ def get_full_system_prompt():
 def call_mcp_tool(name: str, args: Dict[str, Any]):
     async def _do():
         client = await _get_client()
-        actual = name if name.endswith("_tool") else name + "_tool"
-        return await client.call_tool(actual, args)
+        return await client.call_tool(name, args)
     return _call_async(_do())
 
 def extract_tool_invocations(text: str) -> List[Tuple[str, Dict[str, Any]]]:
@@ -101,7 +100,7 @@ def extract_tool_invocations(text: str) -> List[Tuple[str, Dict[str, Any]]]:
             if "(" not in line:
                 continue
             name, rest = line.split("(", 1)
-            name = name.strip().removesuffix("_tool")
+            name = name.strip()
             if not rest.endswith(")"):
                 continue
             args = json.loads(rest[:-1].strip())
