@@ -117,7 +117,7 @@ def get_full_system_prompt():
     tool_str_repr = ""
     for tool_name in TOOL_REGISTRY:
         tool_str_repr += "TOOL\n===" + get_tool_str_representation(tool_name)
-        tool_str_repr += f"\n{"="*15}\n"
+        tool_str_repr += f'\n{"="*15}\n'
     return SYSTEM_PROMPT.format(tool_list_repr=tool_str_repr)
 
 def extract_tool_invocations(text: str) -> List[Tuple[str, Dict[str, Any]]]:
@@ -145,7 +145,7 @@ def extract_tool_invocations(text: str) -> List[Tuple[str, Dict[str, Any]]]:
 
 def execute_llm_call(conversation: List[Dict[str, str]]):
     response = openai_client.chat.completions.create(
-        model="gpt-5",
+        model=os.environ.get("MODEL_NAME", "llama3.1:8b"),
         messages=conversation,
         max_completion_tokens=2000
     )
